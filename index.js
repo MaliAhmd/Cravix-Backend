@@ -5,6 +5,7 @@ const cors = require("cors");
 const multer = require("multer");
 const jwt = require("jsonwebtoken");
 const cloudinary = require("cloudinary").v2;
+const bcrypt = require("bcrypt");
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -38,16 +39,16 @@ pool.getConnection((err, connection) => {
   }
 });
 
-app.get("/adminlogin", (req, res) => {
-  const query = "SELECT id, email, password FROM admin_login";
-  pool.query(query, (err, result) => {
-    if (err) {
-      console.log("sql error", err);
-      return res.status(500).json({ err: "Database error" });
-    }
-    res.json(result);
-  });
-});
+// app.get("/adminlogin", (req, res) => {
+//   const query = "SELECT id, email, password FROM admin_login";
+//   pool.query(query, (err, result) => {
+//     if (err) {
+//       console.log("sql error", err);
+//       return res.status(500).json({ err: "Database error" });
+//     }
+//     res.json(result);
+//   });
+// });
 
 app.post("/admin_login", async (req, res) => {
   const { email, password } = req.body;
@@ -445,6 +446,81 @@ app.get("/transactions/:id",async (req, res) => {
     res.status(500).json({ error: "Failed to fetch transaction" });
   }
 });
+app.post("/manager_signup", async (req, res)=>{
+  try {
+    const {name, email, password, confirmPassword}=req.body;
+    if(!name || !email || !password || !confirmPassword){
+      return req.status(400).json({error: "All Fields are Required"});
+    }
+
+    if(password !== confirmPassword){
+      return res.status(400).json({error: "Password do not match"})
+    }
+
+    const [existingUser] = await pool.promise().query(
+      'Select * FROM manager where email = ?', [email]
+    );
+
+    if(existingUser.length>0){
+      return res.status(400).json({error: "Email Already Exist"})
+    }
+     
+    const saltRounds = 10;
+    const hashPassword = await bcrypt.hash(password, saltRounds);
+  
+    const query = "Insert into manager (name, email, password, confirmPassword) VALUES (?,?,?,?)";
+    const values = [name, email, hashPassword, confirmPassword];
+
+    pool.query(query,values,(err, result)=>{
+      if(err){
+        console.log("Error in storing the manager", err);
+        return res.status(500).json({error: "Error in storing the manager"})
+      } else {
+        console.log("Manager successfully stored");
+        return res.status(200).json({message: "Manager successfully stored"})
+      }
+    })
+
+  } catch (error) {
+      console.log("Error occur", error);
+      return res.status(500).json({error: "Error occur"})
+  }
+})
+
+app.post("/manager_signin", async (req,res)=>{
+  const {email, password}=req.body;
+  try {
+    if(!email || !password){
+      return res.status(400).json({error: "All fields are required"});
+    }
+    const query = "Select * from manager where email = ?";
+    const values = [email, password];
+    pool.query(query, values, (err, result)=>{
+      if(err){
+        console.log(err);
+        return res.status(500).json({error: "login failed"})
+      }
+
+      if(result.length === 0){
+        return res.status(401).json({error: "Invalid credentials"})
+      }
+
+      const manager = result[0];
+
+      console.log("Manager login successfully");
+      return res.status(200).json({message: "Manager login successfully",
+        manager:{
+        id: manager.id,
+        email: manager.email
+      }
+      })
+      
+  })
+  } catch (error) {
+      console.log("catch error" , error);
+      return res.status(500).json({error: "Catch error"})
+  }
+})
 
 app.listen(port, () => {
   console.log(`Server run on ${port}`);
